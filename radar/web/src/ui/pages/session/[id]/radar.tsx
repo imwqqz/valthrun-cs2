@@ -204,6 +204,8 @@ const RenderBombIndicator = React.memo(() => {
     );
 });
 
+let kLastLocalMapLevel: { mapName: string, level: string } | null = null;
+
 const MapContainer = React.memo((props: { renderStatistics: UpdateStatistics }) => {
     const refContainer = React.useRef(null);
 
@@ -218,10 +220,21 @@ const MapContainer = React.memo((props: { renderStatistics: UpdateStatistics }) 
         state.radarSettings.mapMarginBottom,
     ], shallowEqual);
 
-    const localMapLevel = useRadarState(React.useCallback(state => {
-        const position = state.playerPawns.find(pawn => pawn.controllerEntityId === state.localControllerEntityId)?.position ?? [0, 0, 0];
-        return getMapLevel(currentMap, position);
+    /*
+     * While the local pawn is available its position defines the current level else
+     * keep the last known level instead of resolving the world origin into the default overview.
+     */
+    const localLevel = useRadarState(React.useCallback(state => {
+        const position = state.playerPawns.find(pawn => pawn.controllerEntityId === state.localControllerEntityId)?.position;
+        return position ? getMapLevel(currentMap, position) : null;
     }, [currentMap]));
+
+    if (localLevel) {
+        kLastLocalMapLevel = { mapName: currentMap.mapName, level: localLevel };
+    }
+
+    const stickyLevel = kLastLocalMapLevel?.mapName === currentMap.mapName ? kLastLocalMapLevel.level : null;
+    const localMapLevel = localLevel ?? stickyLevel ?? "default";
 
     React.useEffect(() => resetMapVolumeCache(), [currentMap]);
 
@@ -314,8 +327,9 @@ const CssVariableProvider = (props: { targetRef: React.RefObject<HTMLElement>, r
         }
 
         let currentRequestFrame: number | null = null;
+        let lastMapOrigin: [number, number] | null = null;
+
         const executeFrame = () => {
-            /* clear the last request */
             currentRequestFrame = null;
 
             const state = subscriber.getCurrentRadarState();
@@ -343,9 +357,11 @@ const CssVariableProvider = (props: { targetRef: React.RefObject<HTMLElement>, r
 
             const localPlayer = state.playerPawns.find(pawn => pawn.controllerEntityId === state.localControllerEntityId);
             if (localPlayer) {
-                const mapPosition = getMapPosition(currentMap, localPlayer.position);
-                variables.push(`--map-transform-origin-left: ${mapPosition[0] / 100}`);
-                variables.push(`--map-transform-origin-top: ${mapPosition[1] / 100}`);
+                lastMapOrigin = getMapPosition(currentMap, localPlayer.position);
+            }
+            if (lastMapOrigin) {
+                variables.push(`--map-transform-origin-left: ${lastMapOrigin[0] / 100}`);
+                variables.push(`--map-transform-origin-top: ${lastMapOrigin[1] / 100}`);
             }
 
             variables.push(`--update-interval: 50ms`);
